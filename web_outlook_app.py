@@ -1132,38 +1132,49 @@ def decode_header_value(header_value: str) -> str:
         return str(header_value) if header_value else ""
 
 
-def get_email_body(msg) -> str:
-    """提取邮件正文"""
-    body = ""
+def get_email_body(msg) -> tuple[str, str]:
+    """提取邮件正文，优先返回 HTML"""
+    html_body = ""
+    text_body = ""
+
     if msg.is_multipart():
         for part in msg.walk():
             content_type = part.get_content_type()
             content_disposition = str(part.get("Content-Disposition", ""))
-            
-            if content_type == "text/plain" and "attachment" not in content_disposition:
-                try:
-                    payload = part.get_payload(decode=True)
-                    charset = part.get_content_charset() or 'utf-8'
-                    body = payload.decode(charset, errors='replace')
-                    break
-                except Exception:
-                    continue
-            elif content_type == "text/html" and "attachment" not in content_disposition and not body:
-                try:
-                    payload = part.get_payload(decode=True)
-                    charset = part.get_content_charset() or 'utf-8'
-                    body = payload.decode(charset, errors='replace')
-                except Exception:
-                    continue
+
+            if "attachment" in content_disposition:
+                continue
+
+            if content_type not in ("text/plain", "text/html"):
+                continue
+
+            try:
+                payload = part.get_payload(decode=True)
+                charset = part.get_content_charset() or 'utf-8'
+                content = payload.decode(charset, errors='replace') if payload else ""
+            except Exception:
+                continue
+
+            if content_type == "text/html" and not html_body:
+                html_body = content
+            elif content_type == "text/plain" and not text_body:
+                text_body = content
     else:
         try:
             payload = msg.get_payload(decode=True)
             charset = msg.get_content_charset() or 'utf-8'
-            body = payload.decode(charset, errors='replace')
+            content = payload.decode(charset, errors='replace') if payload else ""
         except Exception:
-            body = str(msg.get_payload())
-    
-    return body
+            content = str(msg.get_payload())
+
+        if msg.get_content_type() == "text/html":
+            html_body = content
+        else:
+            text_body = content
+
+    if html_body:
+        return html_body, 'html'
+    return text_body, 'text'
 
 
 def parse_account_string(account_str: str) -> Optional[Dict]:
@@ -1522,12 +1533,13 @@ def get_emails_imap_with_server(account: str, client_id: str, refresh_token: str
                     raw_email = msg_data[0][1]
                     msg = email.message_from_bytes(raw_email)
 
+                    body_content, _ = get_email_body(msg)
                     emails.append({
                         'id': msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id),
                         'subject': decode_header_value(msg.get("Subject", "无主题")),
                         'from': decode_header_value(msg.get("From", "未知发件人")),
                         'date': msg.get("Date", "未知时间"),
-                        'body_preview': get_email_body(msg)[:200] + "..." if len(get_email_body(msg)) > 200 else get_email_body(msg)
+                        'body_preview': body_content[:200] + "..." if len(body_content) > 200 else body_content
                     })
             except Exception:
                 continue
@@ -1594,6 +1606,8 @@ def get_email_detail_imap(account: str, client_id: str, refresh_token: str, mess
         raw_email = msg_data[0][1]
         msg = email.message_from_bytes(raw_email)
 
+        body, body_type = get_email_body(msg)
+
         return {
             'id': message_id,
             'subject': decode_header_value(msg.get("Subject", "无主题")),
@@ -1601,7 +1615,8 @@ def get_email_detail_imap(account: str, client_id: str, refresh_token: str, mess
             'to': decode_header_value(msg.get("To", "")),
             'cc': decode_header_value(msg.get("Cc", "")),
             'date': msg.get("Date", "未知时间"),
-            'body': get_email_body(msg)
+            'body': body,
+            'body_type': body_type
         }
     except Exception:
         return None
