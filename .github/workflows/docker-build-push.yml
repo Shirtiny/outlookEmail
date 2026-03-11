@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - custom
+    paths-ignore:
+      - 'dev-log/**'
+      - 'docs/**'
+      - 'README.md'
   workflow_dispatch:
 
 env:
