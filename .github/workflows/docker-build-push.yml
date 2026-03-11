@@ -4,11 +4,6 @@ on:
   push:
     branches:
       - custom
-    paths:
-      - '**/*.py'
-      - 'requirements.txt'
-      - 'Dockerfile'
-      - 'templates/**'
   workflow_dispatch:
 
 env:
